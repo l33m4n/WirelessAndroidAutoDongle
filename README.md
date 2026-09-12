@@ -4,6 +4,14 @@ DIY Wireless Android Auto adapter to use with a car that supports only wired And
 
 This repository consists of the buildroot setup to generate an sd card image to create your own Wireless Android Auto adapter.
 
+## Fork Notice
+
+This repository is a fork of [nisargjhaveri/WirelessAndroidAutoDongle](https://github.com/nisargjhaveri/WirelessAndroidAutoDongle).
+
+The goal of this fork is to narrow the hardware scope to only the **Raspberry Pi Zero 2 W** and focus on improving overall stability.
+
+This fork has been entirely vibe coded and is provided as-is. Use it at your own risk.
+
 ## Features
 
 - Passes through all Android Auto traffic without any modifications to ensure seamless and safe experience.
