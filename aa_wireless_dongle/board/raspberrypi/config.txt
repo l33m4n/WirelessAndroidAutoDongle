@@ -22,5 +22,7 @@ gpu_mem_1024=100
 # Enable autoprobing of Bluetooth driver without need of hciattach/btattach
 dtparam=krnbt=on
 
+dtparam=watchdog=on
+
 # Enable dwc2 required for gadget mode
 dtoverlay=dwc2,dr_mode=peripheral

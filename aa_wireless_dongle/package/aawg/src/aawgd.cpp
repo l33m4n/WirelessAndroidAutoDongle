@@ -33,7 +33,9 @@ int main(void) {
         std::optional<std::thread> proxyThread = proxy.startServer(Config::instance()->getWifiInfo().port);
 
         if (!proxyThread) {
-            return 1;
+            Logger::instance()->info("Proxy server failed to start, retrying in 2 seconds\n");
+            sleep(2);
+            continue;
         }
 
         if (connectionStrategy != ConnectionStrategy::DONGLE_MODE) {

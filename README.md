@@ -5,49 +5,28 @@ DIY Wireless Android Auto adapter to use with a car that supports only wired And
 This repository consists of the buildroot setup to generate an sd card image to create your own Wireless Android Auto adapter.
 
 ## Features
-- Native Wireless Android Auto connection to the phone, no extra app needed on the phone.
+
 - Passes through all Android Auto traffic without any modifications to ensure seamless and safe experience.
 - Fast bootup, connection under 30 seconds.
-- Supports multiple boards (Currently multiple Raspberry Pi boards).
+- Supports the Raspberry Pi Zero 2 W target hardware.
 
 ## Supported Hardware
-This is currently tested and built for the following Raspberry Pi boards supporting USB OTG.
-- **Raspberry Pi Zero W**
+This project is currently built and tested for:
 - **Raspberry Pi Zero 2 W**
-- **Raspberry Pi 3 A+** _(Raspberry Pi 3 B+ is not supported due to lack of USB OTG support.)_
-- **Raspberry Pi 4**
 
-In theory, this can be extended to more hardware in future with these basic requirements.
+The board should support USB OTG or Gadget mode, have Wifi and Bluetooth, and be able to operate on car power.
 
-- The board should support USB OTG or Gadget mode.
-- Has Wifi and Bluetooth. External should also work if not in-built.
-- Should be able to operate on power provided by the car.
-
-## Install and run
-[Download a pre-built sd card image](https://github.com/nisargjhaveri/WirelessAndroidAutoDongle/releases) for your board. You can also [build one yourself](BUILDING.md). Install the image on the SD card using your favorite tool.
-
-You may want to update the country code and other settings that works best for you. See [Configurations](#Configurations)
-
-### First-time connection
-- Connect the phone to headunit via USB cable, make sure Android Auto starts. Disconnect phone.
-- Connect the board to the car. Make sure to use a data cable, with the USB OTG enabled port on the board.
-    - On **Raspberry Pi Zero W** and **Raspberry Pi Zero 2 W**: Use the second micro-usb port marked "USB" and not "PWR".
-    - On **Raspberry Pi 3 A+**: Use the only USB-A port with an USB-A to USB-A cable.
-    - On **Raspberry Pi 4**, use the USB-C port used for normally powering the board.
-- Open Bluetooth settings and pair the new device called `AndroidAuto-Dongle-*` or `WirelessAADongle-*` on your phone.
-- After this phone should automatically connect via Wifi and the dongle will connect to the headunit via USB and start Android Auto on the car screen.
+## How to use
+1. Flash the built image to an SD card.
+2. Connect the board to the car using the USB OTG-enabled port.
+3. Pair the device named `AndroidAuto-Dongle-*` or `WirelessAADongle-*` on your phone.
+4. The phone should automatically connect via Wifi and the dongle will connect to the headunit via USB and start Android Auto on the car screen.
 
 ### Subsequent connections
-From the next time, it should automatically connect to the phone and start Android Auto.
 
-Make sure your Bluetooth and Wifi are enabled on the phone.
-
-## Configurations
-
-Once the image is installed on the SD card, you can see the SD card as `WirelessAA` drive.
-
-Edit the `aawgd.conf` file inside the `WirelessAA` drive using a text editor to update the configurations. The file contains the possible configuration options with their explanations.
-
+1. Turn on the car.
+2. Wait until the dongle boots and the phone connects automatically.
+3. Android Auto should start on the car screen.
 
 ## Troubleshoot
 
@@ -64,10 +43,10 @@ Make sure that "Wireless Android Auto" is enabled in your phone's Andriod Auto s
 ### Getting logs
 Once you've already tried multiple times and it still does not work, you can ssh into the device and try to get some logs.
 
-- Set a static password by setting the `AAWG_WIFI_PASSWORD` config, and enable SSH by setting the `AAWG_ENABLE_SSH` config. See [the instructions to update the configurations](#Configurations).
+- Set a static password by setting the `AAWG_WIFI_PASSWORD` config and rebuild the Zero 2 W image.
 - Connect the device to the headunit, let it boot and try to connect once. The logs are not persisted across reboots, so you need to get the logs in the same instance soon after you observe the issue.
-- Connect to the device using wifi (SSID: AAWirelessDongle, Password: \<as set in the first step>).
-- SSH into the device (username: root, password: password, see relevant defconfigs e.g. [raspberrypi0w_defconfig](aa_wireless_dongle/configs/raspberrypi0w_defconfig)).
+- Connect to the device using wifi (SSID: AAWirelessDongle, Password: <as set in the first step>).
+- SSH into the device (username: root, password: password, see [raspberrypizero2w_defconfig](aa_wireless_dongle/configs/raspberrypizero2w_defconfig)).
 - Once you're in, try to have a look at `/var/log/messages` file, it should have most relevant logs to start with. You can also copy the file and attach to issues you create if any.
 
 ## Contribute
@@ -75,8 +54,9 @@ Once you've already tried multiple times and it still does not work, you can ssh
 
 Feel free to [Create a PR](https://github.com/nisargjhaveri/WirelessAndroidAutoDongle/pulls) to fix any issues. Refer [BUILDING.md](BUILDING.md) for instructions on how to build locally.
 
-## Support 
-Please [consider sponsoring](https://github.com/sponsors/nisargjhaveri) if you find the project useful. Even a small donation helps. This will help continuing fixing issues and getting support for more devices and headunit in future.
+## Acknowledgements
+
+Thanks to all the contributors and open source projects that made this possible.
 
 In any case, don't forget to star on github and spread the word if you think this project might be useful to someone else as well.
 

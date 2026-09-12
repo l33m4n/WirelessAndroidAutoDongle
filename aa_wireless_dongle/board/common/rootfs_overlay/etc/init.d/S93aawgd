@@ -5,9 +5,30 @@
 
 DAEMON="aawgd"
 PIDFILE="/var/run/$DAEMON.pid"
-
+RESTART_DELAY=2
 
 RETVAL=0
+child_pid=""
+
+cleanup() {
+	if [ -n "$child_pid" ]; then
+		kill "$child_pid" 2>/dev/null
+		wait "$child_pid" 2>/dev/null
+	fi
+}
+
+supervise() {
+	trap cleanup TERM INT QUIT
+	while true; do
+		/usr/bin/$DAEMON &
+		child_pid=$!
+		wait "$child_pid"
+		status=$?
+		child_pid=""
+		echo "$DAEMON exited with status $status, restarting in ${RESTART_DELAY}s"
+		sleep $RESTART_DELAY
+	done
+}
 
 case "$1" in
 	start)
@@ -16,8 +37,13 @@ case "$1" in
 			source /etc/aawgd.conf
 		fi
 
+		if [ "$2" = "supervise" ]; then
+			supervise
+			exit 0
+		fi
+
 		printf "Starting $DAEMON: "
-		start-stop-daemon -S -b -q -m -p "$PIDFILE" -x "/usr/bin/$DAEMON"
+		start-stop-daemon -S -b -q -m -p "$PIDFILE" -x "$0" -- start supervise
 		RETVAL=$?
 		[ $RETVAL = 0 ] && echo "OK" || echo "FAIL"
 		;;
@@ -25,6 +51,7 @@ case "$1" in
 		printf "Stopping $DAEMON: "
 		start-stop-daemon -K -q -p "$PIDFILE"
 		RETVAL=$?
+		killall -q $DAEMON 2>/dev/null
 		[ $RETVAL = 0 ] && echo "OK" || echo "FAIL"
 		;;
 	restart)

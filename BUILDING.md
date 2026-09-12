@@ -28,15 +28,12 @@ Once you have a recursive clone, you can manually build using the following set 
 
 ```shell
 $ cd buildroot
-$ make BR2_EXTERNAL=../aa_wireless_dongle/ O=output/rpi0w raspberrypi0w_defconfig # Change output and defconfig for your board
-$ cd output/rpi0w
+$ make BR2_EXTERNAL=../aa_wireless_dongle/ O=output/rpizero2w raspberrypizero2w_defconfig
+$ cd output/rpizero2w
 $ make
 ```
 
 When successful, this should generate the sd card image at `images/sdcard.img` in your output directory. See the "Install and Run" instructions above to use this image.
 
-Use one of the following defconfig for the board you intend to use:
-- `raspberrypi0w_defconfig` - Raspberry Pi Zero W
+This project targets a single board:
 - `raspberrypizero2w_defconfig` - Raspberry Pi Zero 2 W
-- `raspberrypi3a_defconfig` - Raspberry Pi 3A+
-- `raspberrypi4_defconfig` - Raspberry Pi 4

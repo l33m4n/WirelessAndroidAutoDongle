@@ -3,14 +3,36 @@
 # Setup persistent storage
 #
 
+PERSIST_DEV="/dev/mmcblk0p3"
+PERSIST_MNT="/persist"
+PERSIST_OPTS="noatime,sync,data=journal,errors=remount-ro"
+
+mount_persist() {
+	mount -t ext4 -o "$PERSIST_OPTS" "$PERSIST_DEV" "$PERSIST_MNT"
+}
+
 case "$1" in
 	start)
 		echo "Setup persistent storage..."
+
+		if [ -b "$PERSIST_DEV" ]; then
+			fsck.ext4 -p -f "$PERSIST_DEV" || fsck.ext4 -y -f "$PERSIST_DEV"
+			if ! mount_persist; then
+				echo "Recreating persist filesystem..."
+				mkfs.ext4 -F -L persist "$PERSIST_DEV"
+				mount_persist
+			fi
+		fi
+
 		mkdir -p /persist/seedrng
 		mkdir -p /persist/bluetooth
 		;;
+	stop)
+		sync
+		umount "$PERSIST_MNT" 2>/dev/null
+		;;
 	*)
-		echo "Usage: $0 {start}"
+		echo "Usage: $0 {start|stop}"
 		exit 1
 esac
 
