@@ -8,6 +8,7 @@ This repository consists of the buildroot setup to generate an sd card image to 
 
 - Passes through all Android Auto traffic without any modifications to ensure seamless and safe experience.
 - Fast bootup, connection under 30 seconds.
+- Persistent, dated logs on the SD card for easy troubleshooting after power cuts.
 - Supports the Raspberry Pi Zero 2 W target hardware.
 
 ## Supported Hardware
@@ -41,13 +42,33 @@ The most common issue behind this is either bad USB cable or use of wrong USB po
 Make sure that "Wireless Android Auto" is enabled in your phone's Andriod Auto settings. This option is only available and required on some older phones.
 
 ### Getting logs
-Once you've already tried multiple times and it still does not work, you can ssh into the device and try to get some logs.
+
+The dongle keeps persistent, dated logs on the SD card, so in most cases you do
+not need to SSH into the device in the car. If it stops working, simply power it
+down, remove the SD card, and read the logs on your computer.
+
+- The logs live on the `persist` partition under `logs/`, named per boot as
+  `boot-YYYYMMDD-HHMMSS.log` (for example `boot-20250101-081500.log`).
+- A new file is created on every boot and the most recent 15 files are kept;
+  older ones are pruned automatically.
+- Each file contains the `aawgd` daemon output, init messages, and kernel logs
+  for that session. Open the newest file around the time the issue happened.
+- The `persist` partition is `ext4`. On Windows you can read it with a tool such
+  as [Ext2Fsd](https://github.com/matt-wu/Ext3Fsd) or [DiskInternals Linux
+  Reader](https://www.diskinternals.com/linux-reader/); on Linux/macOS just mount
+  the third partition.
+
+> Note: the Pi Zero 2 W has no real-time clock. The dongle keeps an approximate
+> clock across power cuts, so timestamps are monotonic and roughly correct, but
+> they may drift until the phone or another time source syncs the clock.
+
+If you prefer live logs, you can still SSH into the device:
 
 - Set a static password by setting the `AAWG_WIFI_PASSWORD` config and rebuild the Zero 2 W image.
-- Connect the device to the headunit, let it boot and try to connect once. The logs are not persisted across reboots, so you need to get the logs in the same instance soon after you observe the issue.
+- Connect the device to the headunit, let it boot and try to connect once.
 - Connect to the device using wifi (SSID: AAWirelessDongle, Password: <as set in the first step>).
 - SSH into the device (username: root, password: password, see [raspberrypizero2w_defconfig](aa_wireless_dongle/configs/raspberrypizero2w_defconfig)).
-- Once you're in, try to have a look at `/var/log/messages` file, it should have most relevant logs to start with. You can also copy the file and attach to issues you create if any.
+- Once you're in, look at the current log under `/persist/logs/` or `logread`. You can also copy the file and attach it to any issues you create.
 
 ## Contribute
 [Find or create a new issue](https://github.com/nisargjhaveri/WirelessAndroidAutoDongle/issues) for any bugs or improvements.
