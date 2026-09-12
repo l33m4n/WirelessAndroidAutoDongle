@@ -3,6 +3,7 @@
 #include <list>
 #include <map>
 #include <functional>
+#include <mutex>
 
 typedef std::map<std::string, std::string> UeventEnv;
 
@@ -12,6 +13,8 @@ public:
 
     std::optional<std::thread> start();
 
+    using HandlerId = std::list<std::function<bool(UeventEnv)>>::iterator;
+
     /**
      * Add a handler to be called for upcoming uevents, the handler will be called on the monitor thread.
      * The handler should check if the event is interesting to it, and act on the event if interesting.
@@ -19,7 +22,8 @@ public:
      * 
      * @param handler Handler to be called for every upcoming uevent.
      */
-    void addHandler(std::function<bool(UeventEnv)> handler);
+    HandlerId addHandler(std::function<bool(UeventEnv)> handler);
+    void removeHandler(HandlerId handlerId);
 
 private:
     UeventMonitor() {};
@@ -29,4 +33,5 @@ private:
     void monitorLoop(int nl_socket);
 
     std::list<std::function<bool(UeventEnv)>> handlers;
+    std::mutex m_handlersMutex;
 };

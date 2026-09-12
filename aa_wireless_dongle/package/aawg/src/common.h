@@ -39,7 +39,9 @@ private:
 
     std::string getMacAddress(std::string interface);
 
+    std::optional<WifiInfo> wifiInfo;
     std::optional<ConnectionStrategy> connectionStrategy;
+    std::optional<std::string> uniqueSuffix;
 };
 
 class Logger {

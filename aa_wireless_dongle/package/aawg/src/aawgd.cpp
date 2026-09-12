@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <signal.h>
+#include <atomic>
 
 #include "common.h"
 #include "bluetoothHandler.h"
@@ -7,8 +9,22 @@
 #include "uevent.h"
 #include "usb.h"
 
+std::atomic<bool> should_exit(false);
+
+void sigterm_handler(int signal) {
+    (void)signal;
+    should_exit = true;
+}
+
 int main(void) {
     Logger::instance()->info("AA Wireless Dongle\n");
+
+    struct sigaction sa = {};
+    sa.sa_handler = sigterm_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGINT, &sa, NULL);
 
     // Global init
     std::optional<std::thread> ueventThread =  UeventMonitor::instance().start();
@@ -20,7 +36,7 @@ int main(void) {
         BluetoothHandler::instance().powerOn();
     }
 
-    while (true) {
+    while (!should_exit) {
         Logger::instance()->info("Connection Strategy: %d\n", connectionStrategy);
 
         // Per connection setup and processing
@@ -28,6 +44,8 @@ int main(void) {
             Logger::instance()->info("Waiting for the accessory to connect first\n");
             UsbManager::instance().enableDefaultAndWaitForAccessory();
         }
+
+        if (should_exit) break;
 
         AAWProxy proxy;
         std::optional<std::thread> proxyThread = proxy.startServer(Config::instance()->getWifiInfo().port);
@@ -53,13 +71,17 @@ int main(void) {
 
         UsbManager::instance().disableGadget();
 
-        if (connectionStrategy != ConnectionStrategy::DONGLE_MODE) {
+        if (connectionStrategy != ConnectionStrategy::DONGLE_MODE && !should_exit) {
             // sleep for a couple of seconds before retrying
             sleep(2);
         }
     }
 
-    ueventThread->join();
+    if (ueventThread && ueventThread->joinable()) {
+        ueventThread->detach();
+    }
+
+    Logger::instance()->info("Exiting AA Wireless Dongle\n");
 
     return 0;
 }

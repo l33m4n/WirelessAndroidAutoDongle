@@ -48,16 +48,30 @@ void UeventMonitor::monitorLoop(int nl_socket) {
         }
 
         // Call the handlers
-        for (auto it = handlers.cbegin(); it != handlers.cend(); ++it) {
+        std::lock_guard<std::mutex> lock(m_handlersMutex);
+        for (auto it = handlers.begin(); it != handlers.end();) {
             if ((*it)(envMap)) {
                 it = handlers.erase(it);
+            } else {
+                ++it;
             }
         }
     }
 }
 
-void UeventMonitor::addHandler(std::function<bool(UeventEnv)> handler) {
+UeventMonitor::HandlerId UeventMonitor::addHandler(std::function<bool(UeventEnv)> handler) {
+    std::lock_guard<std::mutex> lock(m_handlersMutex);
     handlers.push_back(handler);
+    auto it = handlers.end();
+    --it;
+    return it;
+}
+
+void UeventMonitor::removeHandler(HandlerId handlerId) {
+    std::lock_guard<std::mutex> lock(m_handlersMutex);
+    if (handlerId != handlers.end()) {
+        handlers.erase(handlerId);
+    }
 }
 
 std::optional<std::thread> UeventMonitor::start() {

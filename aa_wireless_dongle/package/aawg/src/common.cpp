@@ -38,24 +38,32 @@ std::string Config::getMacAddress(std::string interface) {
 }
 
 std::string Config::getUniqueSuffix() {
-    std::string uniqueSuffix = getenv("AAWG_UNIQUE_NAME_SUFFIX", "");
-    if (!uniqueSuffix.empty()) {
-        return uniqueSuffix;
+    if (uniqueSuffix.has_value()) {
+        return uniqueSuffix.value();
     }
 
-    std::ifstream serialNumberFile("/sys/firmware/devicetree/base/serial-number");
+    std::string suffix = getenv("AAWG_UNIQUE_NAME_SUFFIX", "");
+    if (suffix.empty()) {
+        std::ifstream serialNumberFile("/sys/firmware/devicetree/base/serial-number");
 
-    std::string serialNumber;
-    getline(serialNumberFile, serialNumber);
+        std::string serialNumber;
+        getline(serialNumberFile, serialNumber);
 
-    // Removing trailing null from serialNumber, pad at the beginning
-    serialNumber = std::string("00000000") + serialNumber.c_str();
+        // Removing trailing null from serialNumber, pad at the beginning
+        serialNumber = std::string("00000000") + serialNumber.c_str();
+        suffix = serialNumber.substr(serialNumber.size() - 6);
+    }
 
-    return serialNumber.substr(serialNumber.size() - 6);
+    uniqueSuffix = suffix;
+    return uniqueSuffix.value();
 }
 
 WifiInfo Config::getWifiInfo() {
-    return {
+    if (wifiInfo.has_value()) {
+        return wifiInfo.value();
+    }
+
+    wifiInfo = WifiInfo {
         getenv("AAWG_WIFI_SSID", "AAWirelessDongle"),
         getenv("AAWG_WIFI_PASSWORD", "ConnectAAWirelessDongle"),
         getenv("AAWG_WIFI_BSSID", getMacAddress("wlan0")),
@@ -64,6 +72,8 @@ WifiInfo Config::getWifiInfo() {
         getenv("AAWG_PROXY_IP_ADDRESS", "10.0.0.1"),
         getenv("AAWG_PROXY_PORT", 5288),
     };
+
+    return wifiInfo.value();
 }
 
 ConnectionStrategy Config::getConnectionStrategy() {

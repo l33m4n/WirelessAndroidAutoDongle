@@ -1,11 +1,14 @@
 #include <stdio.h>
 #include <unistd.h>
-#include <signal.h>
 #include <fcntl.h>
 #include <string.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/poll.h>
+#include <sys/eventfd.h>
+#include <pthread.h>
+#include <sched.h>
 #include <thread>
 #include <optional>
 #include <atomic>
@@ -16,17 +19,35 @@
 #include "bluetoothHandler.h"
 #include "proxyHandler.h"
 
-void empty_signal_handler(int signal) {
-    // Empty. We don't want to do anything but interrupt the thread.
-}
-
 ssize_t AAWProxy::readFully(int fd, unsigned char *buffer, size_t nbyte) {
     size_t remaining_bytes = nbyte;
     while (remaining_bytes > 0) {
         ssize_t len = read(fd, buffer, remaining_bytes);
 
-        if (len <= 0) {
+        if (len < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
             // Error, cannot read more.
+            return len;
+        }
+
+        buffer += len;
+        remaining_bytes -= len;
+    }
+
+    return nbyte;
+}
+
+ssize_t AAWProxy::writeFully(int fd, const unsigned char *buffer, size_t nbyte) {
+    size_t remaining_bytes = nbyte;
+    while (remaining_bytes > 0) {
+        ssize_t len = write(fd, buffer, remaining_bytes);
+
+        if (len < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
             return len;
         }
 
@@ -94,6 +115,34 @@ void AAWProxy::forward(ProxyDirection direction, std::atomic<bool>& should_exit)
     }
 
     while (!should_exit) {
+        struct pollfd poll_fds[2] = {};
+        poll_fds[0].fd = read_fd;
+        poll_fds[0].events = POLLIN;
+        int poll_count = 1;
+
+        if (m_exit_event_fd >= 0) {
+            poll_fds[1].fd = m_exit_event_fd;
+            poll_fds[1].events = POLLIN;
+            poll_count = 2;
+        }
+
+        int poll_result = poll(poll_fds, poll_count, -1);
+        if (poll_result < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            Logger::instance()->info("Poll on %s failed: %s\n", read_name.c_str(), strerror(errno));
+            break;
+        }
+
+        if (m_exit_event_fd >= 0 && (poll_fds[1].revents & POLLIN)) {
+            break;
+        }
+
+        if (!(poll_fds[0].revents & POLLIN)) {
+            continue;
+        }
+
         // Read
         ssize_t len = read_message ? readMessage(read_fd, buffer, buffer_len) : read(read_fd, buffer, buffer_len);
 
@@ -117,7 +166,7 @@ void AAWProxy::forward(ProxyDirection direction, std::atomic<bool>& should_exit)
         }
 
         // Write
-        ssize_t wlen = write(write_fd, buffer, len);
+        ssize_t wlen = writeFully(write_fd, buffer, len);
 
         if (wlen <= 0) {
             // Start logging read/write details if there is an error.
@@ -129,6 +178,10 @@ void AAWProxy::forward(ProxyDirection direction, std::atomic<bool>& should_exit)
 
         if (wlen < 0) {
             Logger::instance()->info("Write to %s failed: %s\n", write_name.c_str(), strerror(errno));
+            break;
+        }
+        else if (wlen != len) {
+            Logger::instance()->info("Partial write to %s: wrote %d of %d bytes\n", write_name.c_str(), wlen, len);
             break;
         }
         else if (should_exit) {
@@ -143,12 +196,11 @@ void AAWProxy::stopForwarding(std::atomic<bool>& should_exit) {
     Logger::instance()->info("Interrupting threads to stop forwarding\n");
     should_exit = true;
 
-    if (m_usb_tcp_thread) {
-        pthread_kill(m_usb_tcp_thread->native_handle(), SIGUSR1);
-    }
-
-    if (m_tcp_usb_thread) {
-        pthread_kill(m_tcp_usb_thread->native_handle(), SIGUSR1);
+    if (m_exit_event_fd >= 0) {
+        uint64_t u = 1;
+        if (write(m_exit_event_fd, &u, sizeof(uint64_t)) != sizeof(uint64_t)) {
+            Logger::instance()->info("Failed to write to exit eventfd: %s\n", strerror(errno));
+        }
     }
 }
 
@@ -170,14 +222,47 @@ void AAWProxy::handleClient(int server_sock) {
 
     if (Config::instance()->getConnectionStrategy() != ConnectionStrategy::USB_FIRST) {
         if (!UsbManager::instance().enableDefaultAndWaitForAccessory(std::chrono::seconds(30))) {
+            close(m_tcp_fd);
+            m_tcp_fd = -1;
             return;
         }
     }
 
     Logger::instance()->info("Opening usb accessory\n");
-    if ((m_usb_fd = open("/dev/usb_accessory", O_RDWR)) < 0) {
+    if ((m_usb_fd = open("/dev/usb_accessory", O_RDWR | O_CLOEXEC)) < 0) {
         Logger::instance()->info("error opening /dev/usb_accessory: %s\n", strerror(errno));
+        close(m_tcp_fd);
+        m_tcp_fd = -1;
         return;
+    }
+
+    m_exit_event_fd = eventfd(0, EFD_CLOEXEC);
+    if (m_exit_event_fd < 0) {
+        Logger::instance()->info("error creating eventfd: %s\n", strerror(errno));
+        close(m_usb_fd);
+        m_usb_fd = -1;
+        close(m_tcp_fd);
+        m_tcp_fd = -1;
+        return;
+    }
+
+    // Set options on the TCP socket for performance
+    int opt = 1;
+    if (setsockopt(m_tcp_fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+        Logger::instance()->info("setsockopt TCP_NODELAY failed: %s\n", strerror(errno));
+    }
+
+    int priority = 6;
+    if (setsockopt(m_tcp_fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority))) {
+        Logger::instance()->info("setsockopt SO_PRIORITY failed: %s\n", strerror(errno));
+    }
+
+    int buf_size = 1024 * 1024; // 1MB
+    if (setsockopt(m_tcp_fd, SOL_SOCKET, SO_RCVBUF, &buf_size, sizeof(buf_size))) {
+        Logger::instance()->info("setsockopt SO_RCVBUF failed: %s\n", strerror(errno));
+    }
+    if (setsockopt(m_tcp_fd, SOL_SOCKET, SO_SNDBUF, &buf_size, sizeof(buf_size))) {
+        Logger::instance()->info("setsockopt SO_SNDBUF failed: %s\n", strerror(errno));
     }
 
     // Set timeout on the TCP socket
@@ -187,17 +272,10 @@ void AAWProxy::handleClient(int server_sock) {
     };
 
     if (setsockopt(m_tcp_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv))) {
-        Logger::instance()->info("setsockopt failed: %s\n", strerror(errno));
-        return;
+        Logger::instance()->info("setsockopt SO_RCVTIMEO failed: %s\n", strerror(errno));
     }
-
-    // Setup signal handler
-    struct sigaction sa;
-    sa.sa_handler = empty_signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    if (sigaction(SIGUSR1, &sa, NULL)) {
-        Logger::instance()->info("Adding signal handler failed: %s\n", strerror(errno));
+    if (setsockopt(m_tcp_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv))) {
+        Logger::instance()->info("setsockopt SO_SNDTIMEO failed: %s\n", strerror(errno));
     }
 
     Logger::instance()->info("Forwarding data between TCP and USB\n");
@@ -205,13 +283,24 @@ void AAWProxy::handleClient(int server_sock) {
     m_usb_tcp_thread = std::thread(&AAWProxy::forward, this, ProxyDirection::USB_to_TCP, std::ref(should_exit));
     m_tcp_usb_thread = std::thread(&AAWProxy::forward, this, ProxyDirection::TCP_to_USB, std::ref(should_exit));
 
+    // Set real-time priority for proxy threads
+    struct sched_param param = {};
+    param.sched_priority = 10;
+    if (pthread_setschedparam(m_usb_tcp_thread->native_handle(), SCHED_RR, &param)) {
+        Logger::instance()->info("pthread_setschedparam failed for USB->TCP thread: %s\n", strerror(errno));
+    }
+    if (pthread_setschedparam(m_tcp_usb_thread->native_handle(), SCHED_RR, &param)) {
+        Logger::instance()->info("pthread_setschedparam failed for TCP->USB thread: %s\n", strerror(errno));
+    }
+
     m_usb_tcp_thread->join();
     m_usb_tcp_thread = std::nullopt;
 
     m_tcp_usb_thread->join();
     m_tcp_usb_thread = std::nullopt;
 
-    signal(SIGUSR1, SIG_DFL);
+    close(m_exit_event_fd);
+    m_exit_event_fd = -1;
 
     close(m_usb_fd);
     m_usb_fd = -1;
@@ -225,7 +314,7 @@ void AAWProxy::handleClient(int server_sock) {
 std::optional<std::thread> AAWProxy::startServer(int32_t port) {
     Logger::instance()->info("Starting tcp server\n");
     int server_sock;
-    if ((server_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    if ((server_sock = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0)) < 0) {
         Logger::instance()->info("creating socket failed: %s\n", strerror(errno));
         return std::nullopt;
     }

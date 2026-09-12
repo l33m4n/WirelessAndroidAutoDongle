@@ -1,6 +1,7 @@
 #include <dirent.h>
 #include <string.h>
 #include <future>
+#include <thread>
 
 #include "common.h"
 #include "uevent.h"
@@ -52,9 +53,20 @@ UsbManager::UsbManager() {
 void UsbManager::writeGadgetFile(std::string gadgetName, std::string relativeFilePath, const char* content) {
     std::string gadgetFilePath = "/sys/kernel/config/usb_gadget/" + gadgetName + "/" + relativeFilePath;
     FILE* gadgetFile = fopen(gadgetFilePath.c_str(), "w");
-    fputs(content, gadgetFile);
-    fputc('\n', gadgetFile);
-    fclose(gadgetFile);
+    if (!gadgetFile) {
+        Logger::instance()->info("USB Manager: Failed to open %s: %s\n", gadgetFilePath.c_str(), strerror(errno));
+        return;
+    }
+
+    if (fputs(content, gadgetFile) == EOF || fputc('\n', gadgetFile) == EOF) {
+        Logger::instance()->info("USB Manager: Failed to write %s: %s\n", gadgetFilePath.c_str(), strerror(errno));
+        fclose(gadgetFile);
+        return;
+    }
+
+    if (fclose(gadgetFile) == EOF) {
+        Logger::instance()->info("USB Manager: Failed to close %s: %s\n", gadgetFilePath.c_str(), strerror(errno));
+    }
 }
 
 void UsbManager::enableGadget(std::string gadgetName) {
@@ -84,7 +96,7 @@ bool UsbManager::enableDefaultAndWaitForAccessory(std::chrono::milliseconds time
     std::shared_ptr<std::promise<void>> accessoryPromise = std::make_shared<std::promise<void>>();
     std::weak_ptr<std::promise<void>> accessoryPromiseWeak = accessoryPromise;
 
-    UeventMonitor::instance().addHandler([accessoryPromiseWeak](UeventEnv env) {
+    auto handlerId = UeventMonitor::instance().addHandler([accessoryPromiseWeak](UeventEnv env) {
         std::shared_ptr<std::promise<void>> accessoryPromise = accessoryPromiseWeak.lock();
 
         // If the promise is no longer active, nothing to do.
@@ -122,6 +134,7 @@ bool UsbManager::enableDefaultAndWaitForAccessory(std::chrono::milliseconds time
             return true;
         } else {
             Logger::instance()->info("USB Manager: Timeout waiting for accessory start request\n");
+            UeventMonitor::instance().removeHandler(handlerId);
             return false;
         }
     }
