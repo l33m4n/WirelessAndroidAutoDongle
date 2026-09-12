@@ -1,0 +1,46 @@
+#!/bin/sh
+#
+# Maintain a monotonic wall clock without a real-time clock (RTC).
+#
+# The Pi Zero 2 W has no battery-backed RTC and the dongle usually has no
+# internet access in the car, so the system clock starts at the epoch on every
+# boot. That would make all persistent log timestamps meaningless. We keep a
+# "fake hardware clock" file on /persist and restore it at boot, so log
+# filenames and timestamps are at least monotonic and close to real time
+# (exact once the phone or any NTP source syncs the clock).
+#
+
+CLOCK_FILE="/persist/clock"
+
+case "$1" in
+    start)
+        if [ -f "$CLOCK_FILE" ]; then
+            SAVED=$(cat "$CLOCK_FILE" 2>/dev/null)
+            NOW=$(date +%s 2>/dev/null)
+            # Only move the clock forward, never backward.
+            if [ -n "$SAVED" ] && [ "$SAVED" -gt "${NOW:-0}" ] 2>/dev/null; then
+                date -s "@$SAVED" >/dev/null 2>&1
+                echo "Restored clock from $CLOCK_FILE"
+            fi
+        fi
+
+        # Persist the current time periodically so the saved value keeps
+        # advancing even if the car cuts power at any moment.
+        (
+            while true; do
+                date +%s > "$CLOCK_FILE" 2>/dev/null
+                sync
+                sleep 60
+            done
+        ) &
+        ;;
+    stop)
+        date +%s > "$CLOCK_FILE" 2>/dev/null
+        sync
+        ;;
+    *)
+        echo "Usage: $0 {start|stop}"
+        exit 1
+esac
+
+exit 0

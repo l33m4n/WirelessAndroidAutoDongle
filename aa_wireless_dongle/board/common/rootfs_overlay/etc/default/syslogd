@@ -1,0 +1,29 @@
+# Configuration for busybox syslogd, sourced by /etc/init.d/S01syslogd.
+#
+# Keep persistent, dated logs on the /persist partition so the user can pull
+# the SD card and read what happened without needing to SSH into the device in
+# the car. A new dated log file is created on every boot, and only the most
+# recent files are kept.
+
+LOG_DIR="/persist/logs"
+MAX_LOG_FILES=15
+
+# Fall back to volatile logging if /persist is not mounted for some reason.
+if mountpoint -q /persist 2>/dev/null || [ -d "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR"
+
+    # Prune old logs, keeping only the most recent $MAX_LOG_FILES files.
+    ls -1t "$LOG_DIR"/boot-*.log 2>/dev/null | tail -n +$MAX_LOG_FILES | while read -r old; do
+        rm -f "$old"
+    done
+
+    LOG_FILE="$LOG_DIR/boot-$(date +%Y%m%d-%H%M%S).log"
+
+    # -O FILE  : write log to FILE
+    # -s SIZE  : max size (KB) of the log file before in-file rotation
+    # -b N     : keep N rotated copies of the current boot's log
+    # -S       : smaller logging output
+    SYSLOGD_ARGS="-O $LOG_FILE -s 512 -b 3 -S"
+else
+    SYSLOGD_ARGS="-S"
+fi
